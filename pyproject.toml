@@ -1,9 +1,6 @@
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py39"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B"]
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
+select = ["E", "F", "I", "N", "B"]

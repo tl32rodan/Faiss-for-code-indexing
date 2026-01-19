@@ -32,5 +32,5 @@ python examples/demo.py
 ```bash
 pip install -r requirements.txt
 ruff check .
-pytest
+python -m unittest discover -s tests
 ```

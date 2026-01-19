@@ -4,7 +4,7 @@ import pickle
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set
 
 from src.models import CodeChunk
 
@@ -18,15 +18,15 @@ def _ensure_2d(values: Any) -> Any:
     return values
 
 
-@dataclass(slots=True)
+@dataclass
 class FaissManager:
     dimension: int
-    index: Any | None = None
-    docstore: dict[str, CodeChunk] = field(default_factory=dict)
-    _id_map: list[str] = field(default_factory=list, init=False)
-    _positions_by_id: dict[str, list[int]] = field(default_factory=dict, init=False)
-    _inactive_positions: set[int] = field(default_factory=set, init=False)
-    _faiss: Any | None = field(default=None, init=False, repr=False)
+    index: Optional[Any] = None
+    docstore: Dict[str, CodeChunk] = field(default_factory=dict)
+    _id_map: List[str] = field(default_factory=list, init=False)
+    _positions_by_id: Dict[str, List[int]] = field(default_factory=dict, init=False)
+    _inactive_positions: Set[int] = field(default_factory=set, init=False)
+    _faiss: Optional[Any] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.index is None:
@@ -42,7 +42,7 @@ class FaissManager:
         embeddings = embedding_model.encode(
             [chunk.get_embedding_content() for chunk in chunk_list]
         )
-        vectors = _ensure_2d(embeddings)
+        vectors = self._prepare_vectors(embeddings)
         self.index.add(vectors)
         start_position = len(self._id_map)
         for offset, chunk in enumerate(chunk_list):
@@ -55,11 +55,11 @@ class FaissManager:
         positions = self._positions_by_id.get(chunk_id, [])
         self._inactive_positions.update(positions)
 
-    def search(self, query_vector: Any, top_k: int = 5) -> list[CodeChunk]:
-        vector = _ensure_2d(query_vector)
+    def search(self, query_vector: Any, top_k: int = 5) -> List[CodeChunk]:
+        vector = self._prepare_vectors(query_vector)
         scores, indices = self.index.search(vector, top_k)
-        results: list[CodeChunk] = []
-        seen: set[str] = set()
+        results: List[CodeChunk] = []
+        seen: Set[str] = set()
         for idx in indices[0]:
             if idx < 0 or idx in self._inactive_positions:
                 continue
@@ -72,6 +72,16 @@ class FaissManager:
             results.append(chunk)
             seen.add(chunk_id)
         return results
+
+    def _prepare_vectors(self, values: Any) -> Any:
+        vectors = _ensure_2d(values)
+        if self._faiss is None:
+            return vectors
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise ImportError("numpy is required when using FAISS indices") from exc
+        return np.array(vectors, dtype="float32")
 
     def save_local(self, path: str) -> None:
         root = Path(path)

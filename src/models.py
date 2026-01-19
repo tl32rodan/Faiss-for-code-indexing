@@ -12,7 +12,7 @@ def _compute_chunk_id(filepath: str, content: str) -> str:
     return digest.hexdigest()
 
 
-@dataclass(slots=True)
+@dataclass
 class CodeChunk:
     filepath: str
     content: str

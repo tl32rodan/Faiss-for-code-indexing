@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from src.vector_store import FaissManager
 
 
-@dataclass(slots=True)
+@dataclass
 class IntentManager:
-    save_path: str | None = None
+    save_path: Optional[str] = None
 
     def update_intent(
         self,

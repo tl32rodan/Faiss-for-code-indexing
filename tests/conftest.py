@@ -1,11 +1,11 @@
-from __future__ import annotations
+from typing import List, Tuple
 
 
 class DummyEmbeddingModel:
     def __init__(self, dimension: int = 4) -> None:
         self.dimension = dimension
 
-    def encode(self, texts: list[str]) -> list[list[float]]:
+    def encode(self, texts: List[str]) -> List[List[float]]:
         vectors = []
         for text in texts:
             values = [float(len(text) % (i + 2)) for i in range(self.dimension)]
@@ -16,13 +16,13 @@ class DummyEmbeddingModel:
 class FakeIndex:
     def __init__(self, dimension: int) -> None:
         self.dimension = dimension
-        self._vectors: list[list[float]] = []
+        self._vectors: List[List[float]] = []
 
-    def add(self, vectors: list[list[float]]) -> None:
+    def add(self, vectors: List[List[float]]) -> None:
         for vector in vectors:
             self._vectors.append([float(value) for value in vector])
 
-    def search(self, query: list[list[float]], k: int) -> tuple[list[list[float]], list[list[int]]]:
+    def search(self, query: List[List[float]], k: int) -> Tuple[List[List[float]], List[List[int]]]:
         if not self._vectors:
             return [[0.0] * k], [[-1] * k]
         query_vector = query[0]
@@ -37,5 +37,5 @@ class FakeIndex:
         return [top_scores], [top_indices]
 
     @staticmethod
-    def _dot(left: list[float], right: list[float]) -> float:
-        return sum(a * b for a, b in zip(left, right, strict=False))
+    def _dot(left: List[float], right: List[float]) -> float:
+        return sum(a * b for a, b in zip(left, right))
