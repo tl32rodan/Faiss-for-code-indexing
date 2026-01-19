@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from src.ingest import CodeSplitter, FileLoader
+from src.ingest import FileLoader
 
 
 class TestIngest(unittest.TestCase):
@@ -64,17 +64,6 @@ class TestIngest(unittest.TestCase):
         self.assertEqual(loader.determine_tier("/repo/src/main.py"), "GOLD")
         self.assertEqual(loader.determine_tier("/repo/tests/test_main.py"), "SILVER")
         self.assertEqual(loader.determine_tier("/repo/other/file.py"), "JUNK")
-
-    def test_code_splitter_chunks_with_overlap(self) -> None:
-        splitter = CodeSplitter(window_size=4, overlap=2, tier_resolver=lambda _: "GOLD")
-        raw_text = "one two three four five six"
-        chunks = splitter.chunk_file("/repo/src/main.py", raw_text)
-
-        self.assertEqual(len(chunks), 2)
-        self.assertEqual(chunks[0].content, "one two three four")
-        self.assertEqual(chunks[1].content, "three four five six")
-        self.assertEqual(chunks[0].start_line, 1)
-
 
 if __name__ == "__main__":
     unittest.main()

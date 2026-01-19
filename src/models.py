@@ -1,33 +1,42 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from typing import Any, Dict
 
 
-def _compute_chunk_id(filepath: str, content: str) -> str:
+def compute_code_hash(content: str) -> str:
     digest = hashlib.sha256()
-    digest.update(filepath.encode("utf-8"))
-    digest.update(b"\0")
     digest.update(content.encode("utf-8"))
     return digest.hexdigest()
 
 
 @dataclass
-class CodeChunk:
+class SymbolChunk:
+    symbol_id: str
     filepath: str
+    symbol_name: str
+    symbol_kind: str
+    start_line: int
+    end_line: int
     content: str
-    meta_intent: str = ""
-    quality_tier: str = "SILVER"
-    start_line: int = 1
-    id: str = ""
-    def __post_init__(self) -> None:
-        if not self.id:
-            self.id = _compute_chunk_id(self.filepath, self.content)
+    code_hash: str
+    meta_hash: str = ""
+    intent: str = ""
+    status: str = "OK"
 
     def get_embedding_content(self) -> str:
         return (
+            f"# Symbol: {self.symbol_id}\n"
             f"# File: {self.filepath}\n"
-            f"# Tier: {self.quality_tier}\n"
-            f"# Intent: {self.meta_intent}\n"
+            f"# Kind: {self.symbol_kind}\n"
+            f"# Intent: {self.intent}\n"
             f"{self.content}"
         )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> SymbolChunk:
+        return cls(**payload)
