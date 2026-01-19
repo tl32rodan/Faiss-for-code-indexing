@@ -14,12 +14,12 @@ def _compute_chunk_id(filepath: str, content: str) -> str:
 
 @dataclass(slots=True)
 class CodeChunk:
-    id: str = ""
     filepath: str
     content: str
     meta_intent: str = ""
     quality_tier: str = "SILVER"
     start_line: int = 1
+    id: str = ""
     def __post_init__(self) -> None:
         if not self.id:
             self.id = _compute_chunk_id(self.filepath, self.content)

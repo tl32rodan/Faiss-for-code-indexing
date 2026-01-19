@@ -6,15 +6,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from src.models import CodeChunk
 
 
-def _ensure_2d(array: np.ndarray) -> np.ndarray:
-    if array.ndim == 1:
-        return array.reshape(1, -1)
-    return array
+def _ensure_2d(values: Any) -> Any:
+    if isinstance(values, list):
+        if not values:
+            return [[]]
+        if isinstance(values[0], (int, float)):
+            return [values]
+    return values
 
 
 @dataclass(slots=True)
@@ -41,7 +42,7 @@ class FaissManager:
         embeddings = embedding_model.encode(
             [chunk.get_embedding_content() for chunk in chunk_list]
         )
-        vectors = _ensure_2d(np.array(embeddings, dtype="float32"))
+        vectors = _ensure_2d(embeddings)
         self.index.add(vectors)
         start_position = len(self._id_map)
         for offset, chunk in enumerate(chunk_list):
@@ -54,8 +55,8 @@ class FaissManager:
         positions = self._positions_by_id.get(chunk_id, [])
         self._inactive_positions.update(positions)
 
-    def search(self, query_vector: np.ndarray, top_k: int = 5) -> list[CodeChunk]:
-        vector = _ensure_2d(np.array(query_vector, dtype="float32"))
+    def search(self, query_vector: Any, top_k: int = 5) -> list[CodeChunk]:
+        vector = _ensure_2d(query_vector)
         scores, indices = self.index.search(vector, top_k)
         results: list[CodeChunk] = []
         seen: set[str] = set()
