@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from src.models import CodeChunk
+from src.knowledge_store import JSONKnowledgeStore
+from src.models import SymbolChunk
 
 
 def _ensure_2d(values: Any) -> Any:
@@ -22,7 +23,7 @@ def _ensure_2d(values: Any) -> Any:
 class FaissManager:
     dimension: int
     index: Optional[Any] = None
-    docstore: Dict[str, CodeChunk] = field(default_factory=dict)
+    docstore: Dict[str, SymbolChunk] = field(default_factory=dict)
     _id_map: List[str] = field(default_factory=list, init=False)
     _positions_by_id: Dict[str, List[int]] = field(default_factory=dict, init=False)
     _inactive_positions: Set[int] = field(default_factory=set, init=False)
@@ -35,30 +36,30 @@ class FaissManager:
             self._faiss = faiss
             self.index = faiss.IndexFlatIP(self.dimension)
 
-    def add_chunks(self, chunks: Iterable[CodeChunk], embedding_model: Any) -> None:
-        chunk_list = list(chunks)
-        if not chunk_list:
+    def add_symbols(self, symbols: Iterable[SymbolChunk], embedding_model: Any) -> None:
+        symbol_list = list(symbols)
+        if not symbol_list:
             return
         embeddings = embedding_model.encode(
-            [chunk.get_embedding_content() for chunk in chunk_list]
+            [symbol.get_embedding_content() for symbol in symbol_list]
         )
         vectors = self._prepare_vectors(embeddings)
         self.index.add(vectors)
         start_position = len(self._id_map)
-        for offset, chunk in enumerate(chunk_list):
+        for offset, symbol in enumerate(symbol_list):
             position = start_position + offset
-            self.docstore[chunk.id] = chunk
-            self._id_map.append(chunk.id)
-            self._positions_by_id.setdefault(chunk.id, []).append(position)
+            self.docstore[symbol.symbol_id] = symbol
+            self._id_map.append(symbol.symbol_id)
+            self._positions_by_id.setdefault(symbol.symbol_id, []).append(position)
 
-    def deactivate_chunk(self, chunk_id: str) -> None:
-        positions = self._positions_by_id.get(chunk_id, [])
+    def deactivate_symbol(self, symbol_id: str) -> None:
+        positions = self._positions_by_id.get(symbol_id, [])
         self._inactive_positions.update(positions)
 
-    def search(self, query_vector: Any, top_k: int = 5) -> List[CodeChunk]:
+    def search(self, query_vector: Any, top_k: int = 5) -> List[SymbolChunk]:
         vector = self._prepare_vectors(query_vector)
         scores, indices = self.index.search(vector, top_k)
-        results: List[CodeChunk] = []
+        results: List[SymbolChunk] = []
         seen: Set[str] = set()
         for idx in indices[0]:
             if idx < 0 or idx in self._inactive_positions:
@@ -115,3 +116,9 @@ class FaissManager:
         self._id_map = payload["id_map"]
         self._positions_by_id = payload["positions_by_id"]
         self._inactive_positions = payload["inactive_positions"]
+
+    def index_from_store(
+        self, store: JSONKnowledgeStore, embedding_model: Any
+    ) -> None:
+        eligible = [symbol for symbol in store.iter_symbols() if symbol.status != "STALE"]
+        self.add_symbols(eligible, embedding_model)

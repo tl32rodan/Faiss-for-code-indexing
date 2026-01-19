@@ -1,27 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
 
-from src.vector_store import FaissManager
+from src.knowledge_store import JSONKnowledgeStore
 
 
 @dataclass
 class IntentManager:
-    save_path: Optional[str] = None
-
     def update_intent(
-        self,
-        chunk_id: str,
-        intent_text: str,
-        vector_db: FaissManager,
-        embedding_model: Any,
+        self, symbol_id: str, intent_text: str, store: JSONKnowledgeStore, source_path: str
     ) -> None:
-        chunk = vector_db.docstore.get(chunk_id)
-        if chunk is None:
-            raise KeyError(f"Chunk {chunk_id} not found")
-        chunk.meta_intent = intent_text
-        vector_db.deactivate_chunk(chunk_id)
-        vector_db.add_chunks([chunk], embedding_model)
-        if self.save_path:
-            vector_db.save_local(self.save_path)
+        symbols = store.load_symbols(source_path)
+        symbol = symbols.get(symbol_id)
+        if symbol is None:
+            raise KeyError(f"Symbol {symbol_id} not found")
+        symbol.intent = intent_text
+        symbol.meta_hash = symbol.code_hash
+        symbol.status = "OK"
+        store.save_symbols(source_path, symbols.values())

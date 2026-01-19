@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sentence_transformers import SentenceTransformer
 
-from src.models import CodeChunk
+from src.models import SymbolChunk, compute_code_hash
 from src.search import CodeSearchEngine
 from src.vector_store import FaissManager
 
@@ -13,23 +13,35 @@ def main() -> None:
     vector_db = FaissManager(dimension=dimension)
 
     chunks = [
-        CodeChunk(
+        SymbolChunk(
+            symbol_id="math:add",
             filepath="/repo/src/math.py",
+            symbol_name="add",
+            symbol_kind="function",
+            start_line=1,
+            end_line=1,
             content="def add(a, b): return a + b",
-            quality_tier="GOLD",
-            meta_intent="Simple math helper",
-            start_line=1,
+            code_hash=compute_code_hash("def add(a, b): return a + b"),
+            intent="Simple math helper",
+            status="OK",
         ),
-        CodeChunk(
+        SymbolChunk(
+            symbol_id="io:read_text",
             filepath="/repo/src/io.py",
-            content="def read_text(path): return Path(path).read_text()",
-            quality_tier="SILVER",
-            meta_intent="File reading helper",
+            symbol_name="read_text",
+            symbol_kind="function",
             start_line=1,
+            end_line=1,
+            content="def read_text(path): return Path(path).read_text()",
+            code_hash=compute_code_hash(
+                "def read_text(path): return Path(path).read_text()"
+            ),
+            intent="File reading helper",
+            status="OK",
         ),
     ]
 
-    vector_db.add_chunks(chunks, embedding_model)
+    vector_db.add_symbols(chunks, embedding_model)
     search_engine = CodeSearchEngine(vector_db=vector_db, embedding_model=embedding_model)
 
     print(search_engine.query("How do I add numbers?"))
