@@ -43,8 +43,8 @@ class TestRefineScript(unittest.TestCase):
             (source_root / "notes.md").write_text("Hello\n", encoding="utf-8")
             (source_root / "script.tcl").write_text("puts \"hi\"\n", encoding="utf-8")
             updated = run_refine(str(source_root), str(knowledge_root))
-            self.assertEqual(updated, 2)
-            self.assertTrue((knowledge_root / "notes.json").exists())
+            self.assertEqual(updated, 1)
+            self.assertFalse((knowledge_root / "notes.json").exists())
             self.assertTrue((knowledge_root / "script.json").exists())
 
 

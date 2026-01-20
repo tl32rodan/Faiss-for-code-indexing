@@ -108,20 +108,18 @@ def index_documents_if_needed(
     from src.knowledge_store import JSONKnowledgeStore
 
     store = JSONKnowledgeStore(str(know_dir), str(docs_dir))
-
-    index_exists = vector_db.index_exists(str(vector_dir))
-    if index_exists:
+    loaded = vector_db.load_local(str(vector_dir))
+    if loaded:
         if updated_count > 0:
             print("Warning: Knowledge was updated; syncing the vector index.")
         print(f"Loading existing index from {vector_dir}...")
-        vector_db.load_local(str(vector_dir))
     else:
         print(f"No index found in {vector_dir}. Building from Knowledge Store...")
 
     print(f"Syncing vector DB from knowledge store (updated: {updated_count})...")
     vector_db.index_from_store(store, embedding_model)
 
-    if updated_count > 0 or not index_exists:
+    if updated_count > 0 or not loaded:
         print(f"Saving updated index to {vector_dir}...")
         vector_db.save_local(str(vector_dir))
 
