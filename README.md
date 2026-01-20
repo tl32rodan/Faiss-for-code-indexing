@@ -43,7 +43,6 @@ python examples/create_and_refine_demo.py
 - `src/knowledge_store.py`: JSON knowledge base I/O.
 - `src/refinery.py`: drift detection + reconciliation.
 - `src/vector_store.py`: FAISS manager + docstore.
-- `src/intent.py`: intent updates in JSON metadata.
 - `src/search.py`: query facade and prompt formatting.
 - `refine.py`: update knowledge base from `src/`.
 - `examples/demo.py`: minimal end-to-end usage example.

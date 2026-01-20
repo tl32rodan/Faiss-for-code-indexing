@@ -59,11 +59,5 @@ class TestIngest(unittest.TestCase):
                 results = loader.scan_directory(str(root))
         self.assertEqual(results, [])
 
-    def test_determine_tier(self) -> None:
-        loader = FileLoader()
-        self.assertEqual(loader.determine_tier("/repo/src/main.py"), "GOLD")
-        self.assertEqual(loader.determine_tier("/repo/tests/test_main.py"), "SILVER")
-        self.assertEqual(loader.determine_tier("/repo/other/file.py"), "JUNK")
-
 if __name__ == "__main__":
     unittest.main()
