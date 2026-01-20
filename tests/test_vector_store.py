@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from src.models import CodeChunk
+from src.models import SymbolChunk, compute_code_hash
 from src.vector_store import FaissManager
 from tests.conftest import DummyEmbeddingModel, FakeIndex
 
@@ -11,22 +11,49 @@ class TestVectorStore(unittest.TestCase):
         embedding_model = DummyEmbeddingModel(dimension=4)
         manager = FaissManager(dimension=4, index=FakeIndex(4))
         chunks = [
-            CodeChunk(filepath="/repo/src/a.py", content="alpha"),
-            CodeChunk(filepath="/repo/src/b.py", content="beta"),
+            SymbolChunk(
+                symbol_id="a:alpha",
+                filepath="/repo/src/a.py",
+                symbol_name="alpha",
+                symbol_kind="function",
+                start_line=1,
+                end_line=1,
+                content="alpha",
+                code_hash=compute_code_hash("alpha"),
+            ),
+            SymbolChunk(
+                symbol_id="b:beta",
+                filepath="/repo/src/b.py",
+                symbol_name="beta",
+                symbol_kind="function",
+                start_line=1,
+                end_line=1,
+                content="beta",
+                code_hash=compute_code_hash("beta"),
+            ),
         ]
-        manager.add_chunks(chunks, embedding_model)
+        manager.add_symbols(chunks, embedding_model)
         query_vector = embedding_model.encode(["alpha"])
         results = manager.search(query_vector, top_k=2)
 
         self.assertEqual(len(results), 2)
         self.assertIn(results[0].filepath, {"/repo/src/a.py", "/repo/src/b.py"})
 
-    def test_deactivate_chunk_skips_results(self) -> None:
+    def test_deactivate_symbol_skips_results(self) -> None:
         embedding_model = DummyEmbeddingModel(dimension=4)
         manager = FaissManager(dimension=4, index=FakeIndex(4))
-        chunk = CodeChunk(filepath="/repo/src/a.py", content="alpha")
-        manager.add_chunks([chunk], embedding_model)
-        manager.deactivate_chunk(chunk.id)
+        chunk = SymbolChunk(
+            symbol_id="a:alpha",
+            filepath="/repo/src/a.py",
+            symbol_name="alpha",
+            symbol_kind="function",
+            start_line=1,
+            end_line=1,
+            content="alpha",
+            code_hash=compute_code_hash("alpha"),
+        )
+        manager.add_symbols([chunk], embedding_model)
+        manager.deactivate_symbol(chunk.symbol_id)
         query_vector = embedding_model.encode(["alpha"])
         results = manager.search(query_vector, top_k=1)
 
@@ -35,8 +62,17 @@ class TestVectorStore(unittest.TestCase):
     def test_save_and_load_roundtrip(self) -> None:
         embedding_model = DummyEmbeddingModel(dimension=4)
         manager = FaissManager(dimension=4, index=FakeIndex(4))
-        chunk = CodeChunk(filepath="/repo/src/a.py", content="alpha")
-        manager.add_chunks([chunk], embedding_model)
+        chunk = SymbolChunk(
+            symbol_id="a:alpha",
+            filepath="/repo/src/a.py",
+            symbol_name="alpha",
+            symbol_kind="function",
+            start_line=1,
+            end_line=1,
+            content="alpha",
+            code_hash=compute_code_hash("alpha"),
+        )
+        manager.add_symbols([chunk], embedding_model)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             manager.save_local(temp_dir)
@@ -46,6 +82,24 @@ class TestVectorStore(unittest.TestCase):
         query_vector = embedding_model.encode(["alpha"])
         results = new_manager.search(query_vector, top_k=1)
         self.assertEqual(results[0].filepath, "/repo/src/a.py")
+
+    def test_index_exists(self) -> None:
+        manager = FaissManager(dimension=4, index=FakeIndex(4))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertFalse(manager.index_exists(temp_dir))
+            chunk = SymbolChunk(
+                symbol_id="a:alpha",
+                filepath="/repo/src/a.py",
+                symbol_name="alpha",
+                symbol_kind="function",
+                start_line=1,
+                end_line=1,
+                content="alpha",
+                code_hash=compute_code_hash("alpha"),
+            )
+            manager.add_symbols([chunk], DummyEmbeddingModel(dimension=4))
+            manager.save_local(temp_dir)
+            self.assertTrue(manager.index_exists(temp_dir))
 
 
 if __name__ == "__main__":
