@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 
+from src.knowledge_store import JSONKnowledgeStore
 from src.models import SymbolChunk, compute_code_hash
 from src.vector_store import FaissManager
 from tests.conftest import DummyEmbeddingModel, FakeIndex
@@ -100,6 +101,83 @@ class TestVectorStore(unittest.TestCase):
             manager.add_symbols([chunk], DummyEmbeddingModel(dimension=4))
             manager.save_local(temp_dir)
             self.assertTrue(manager.index_exists(temp_dir))
+
+    def test_index_from_store_incremental_and_stale(self) -> None:
+        embedding_model = DummyEmbeddingModel(dimension=4)
+        manager = FaissManager(dimension=4, index=FakeIndex(4))
+        existing_ok = SymbolChunk(
+            symbol_id="a:alpha",
+            filepath="/repo/src/a.py",
+            symbol_name="alpha",
+            symbol_kind="function",
+            start_line=1,
+            end_line=1,
+            content="alpha",
+            code_hash=compute_code_hash("alpha"),
+            status="OK",
+        )
+        existing_stale = SymbolChunk(
+            symbol_id="b:beta",
+            filepath="/repo/src/b.py",
+            symbol_name="beta",
+            symbol_kind="function",
+            start_line=1,
+            end_line=1,
+            content="beta",
+            code_hash=compute_code_hash("beta"),
+            status="OK",
+        )
+        manager.add_symbols([existing_ok, existing_stale], embedding_model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = JSONKnowledgeStore(temp_dir, "/repo/src")
+            new_symbol = SymbolChunk(
+                symbol_id="c:gamma",
+                filepath="/repo/src/c.py",
+                symbol_name="gamma",
+                symbol_kind="function",
+                start_line=1,
+                end_line=1,
+                content="gamma",
+                code_hash=compute_code_hash("gamma"),
+                status="NEW",
+            )
+            store.save_symbols(
+                "/repo/src/a.py",
+                [
+                    SymbolChunk(
+                        symbol_id="a:alpha",
+                        filepath="/repo/src/a.py",
+                        symbol_name="alpha",
+                        symbol_kind="function",
+                        start_line=1,
+                        end_line=1,
+                        content="alpha",
+                        code_hash=compute_code_hash("alpha"),
+                        status="OK",
+                    ),
+                    SymbolChunk(
+                        symbol_id="b:beta",
+                        filepath="/repo/src/b.py",
+                        symbol_name="beta",
+                        symbol_kind="function",
+                        start_line=1,
+                        end_line=1,
+                        content="beta",
+                        code_hash=compute_code_hash("beta"),
+                        status="STALE",
+                    ),
+                    new_symbol,
+                ],
+            )
+            manager.index_from_store(store, embedding_model)
+
+        self.assertIn("c:gamma", manager.docstore)
+        self.assertEqual(len(manager.docstore), 3)
+        stale_positions = manager._positions_by_id["b:beta"]
+        for position in stale_positions:
+            self.assertIn(position, manager._inactive_positions)
+        self.assertEqual(len(manager._positions_by_id["a:alpha"]), 1)
 
 
 if __name__ == "__main__":
