@@ -109,21 +109,21 @@ def index_documents_if_needed(
 
     store = JSONKnowledgeStore(str(know_dir), str(docs_dir))
 
-    if vector_db.index_exists(str(vector_dir)):
+    index_exists = vector_db.index_exists(str(vector_dir))
+    if index_exists:
         if updated_count > 0:
-            print(
-                "Warning: Knowledge was updated during refine, but an index already exists. "
-                "Consider rebuilding the vector index to stay in sync."
-            )
+            print("Warning: Knowledge was updated; syncing the vector index.")
         print(f"Loading existing index from {vector_dir}...")
         vector_db.load_local(str(vector_dir))
-        return
+    else:
+        print(f"No index found in {vector_dir}. Building from Knowledge Store...")
 
-    print(f"No index found in {vector_dir}. Building from Knowledge Store...")
+    print(f"Syncing vector DB from knowledge store (updated: {updated_count})...")
     vector_db.index_from_store(store, embedding_model)
 
-    print(f"Saving new index to {vector_dir}...")
-    vector_db.save_local(str(vector_dir))
+    if updated_count > 0 or not index_exists:
+        print(f"Saving updated index to {vector_dir}...")
+        vector_db.save_local(str(vector_dir))
 
 
 def initialize_chatbot(
