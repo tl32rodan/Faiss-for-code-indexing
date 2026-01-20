@@ -35,6 +35,18 @@ class TestRefineScript(unittest.TestCase):
             self.assertEqual(updated, 1)
             self.assertTrue((knowledge_root / "demo.json").exists())
 
+    def test_run_refine_non_python_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_root = Path(temp_dir) / "src"
+            knowledge_root = Path(temp_dir) / "knowledge_base"
+            source_root.mkdir()
+            (source_root / "notes.md").write_text("Hello\n", encoding="utf-8")
+            (source_root / "script.tcl").write_text("puts \"hi\"\n", encoding="utf-8")
+            updated = run_refine(str(source_root), str(knowledge_root))
+            self.assertEqual(updated, 2)
+            self.assertTrue((knowledge_root / "notes.json").exists())
+            self.assertTrue((knowledge_root / "script.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

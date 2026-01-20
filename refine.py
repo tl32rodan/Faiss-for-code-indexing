@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from src.extractors import PythonAstExtractor
+from src.extractors import get_extractor_for_path
 from src.ingest import FileLoader
 from src.knowledge_store import JSONKnowledgeStore
 from src.refinery import KnowledgeRefinery
@@ -22,15 +22,20 @@ def run_refine(source_root: str, knowledge_root: str) -> int:
     source_root_path = Path(source_root)
     if not source_root_path.exists():
         return 0
-    loader = FileLoader(valid_extensions=(".py",))
-    python_files = loader.scan_directory(str(source_root_path))
-    if not python_files:
+    loader = FileLoader(
+        valid_extensions=(".py", ".pl", ".pm", ".tcl", ".csh", ".txt", ".md")
+    )
+    source_files = loader.scan_directory(str(source_root_path))
+    if not source_files:
         return 0
-    extractor = PythonAstExtractor(str(source_root_path))
     store = JSONKnowledgeStore(knowledge_root, str(source_root_path))
-    refinery = KnowledgeRefinery(extractor, store)
-    updated = refinery.refine_files(python_files)
-    return len(updated)
+    updated_total = 0
+    for filepath in source_files:
+        extractor = get_extractor_for_path(str(source_root_path), filepath)
+        refinery = KnowledgeRefinery(extractor, store)
+        updated = refinery.refine_file(filepath)
+        updated_total += len(updated)
+    return updated_total
 
 
 def main() -> None:

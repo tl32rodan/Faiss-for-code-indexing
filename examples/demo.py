@@ -44,7 +44,7 @@ def main() -> None:
     vector_db.add_symbols(chunks, embedding_model)
     search_engine = CodeSearchEngine(vector_db=vector_db, embedding_model=embedding_model)
 
-    print(search_engine.query("How do I add numbers?"))
+    print(search_engine.query("How do I add numbers?", top_k=3))
 
 
 if __name__ == "__main__":

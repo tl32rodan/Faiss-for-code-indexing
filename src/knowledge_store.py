@@ -41,7 +41,21 @@ class JSONKnowledgeStore:
                 yield SymbolChunk.from_dict(entry)
 
     def _knowledge_path_for_source(self, source_path: str) -> Path:
-        resolved_root = self.source_root.resolve()
-        resolved_source = Path(source_path).resolve()
-        rel_path = resolved_source.relative_to(resolved_root)
+        rel_path = self._relative_source_path(source_path)
         return self.knowledge_root / rel_path.with_suffix(".json")
+
+    def _relative_source_path(self, source_path: str) -> Path:
+        source_path_obj = Path(source_path)
+        try:
+            return source_path_obj.relative_to(self.source_root)
+        except ValueError:
+            resolved_root = self.source_root.resolve()
+            resolved_source = source_path_obj.resolve()
+            try:
+                return resolved_source.relative_to(resolved_root)
+            except ValueError:
+                rel_path = source_path_obj
+                if rel_path.is_absolute():
+                    parts = [part for part in rel_path.parts if part != rel_path.anchor]
+                    rel_path = Path(*parts)
+                return rel_path

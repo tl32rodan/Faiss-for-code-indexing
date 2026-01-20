@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from src.embeddings import BaseEmbeddingModel
 from src.knowledge_store import JSONKnowledgeStore
 from src.models import SymbolChunk
 
@@ -36,7 +37,9 @@ class FaissManager:
             self._faiss = faiss
             self.index = faiss.IndexFlatIP(self.dimension)
 
-    def add_symbols(self, symbols: Iterable[SymbolChunk], embedding_model: Any) -> None:
+    def add_symbols(
+        self, symbols: Iterable[SymbolChunk], embedding_model: BaseEmbeddingModel
+    ) -> None:
         symbol_list = list(symbols)
         if not symbol_list:
             return
@@ -117,8 +120,16 @@ class FaissManager:
         self._positions_by_id = payload["positions_by_id"]
         self._inactive_positions = payload["inactive_positions"]
 
+    def index_exists(self, root: str) -> bool:
+        path = Path(root)
+        if not path.exists():
+            return False
+        if not (path / "docstore.pkl").exists():
+            return False
+        return (path / "index.faiss").exists() or (path / "index.pkl").exists()
+
     def index_from_store(
-        self, store: JSONKnowledgeStore, embedding_model: Any
+        self, store: JSONKnowledgeStore, embedding_model: BaseEmbeddingModel
     ) -> None:
         eligible = [symbol for symbol in store.iter_symbols() if symbol.status != "STALE"]
         self.add_symbols(eligible, embedding_model)

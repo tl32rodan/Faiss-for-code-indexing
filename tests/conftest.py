@@ -12,6 +12,9 @@ class DummyEmbeddingModel:
             vectors.append(values)
         return vectors
 
+    def get_sentence_embedding_dimension(self) -> int:
+        return self.dimension
+
 
 class FakeIndex:
     def __init__(self, dimension: int) -> None:

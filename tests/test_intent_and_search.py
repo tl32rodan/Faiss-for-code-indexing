@@ -50,7 +50,7 @@ class TestIntentAndSearch(unittest.TestCase):
         manager.add_symbols([chunk], embedding_model)
 
         engine = CodeSearchEngine(vector_db=manager, embedding_model=embedding_model)
-        output = engine.query("alpha")
+        output = engine.query("alpha", top_k=1)
 
         self.assertIn("Symbol: a:alpha", output)
         self.assertIn("File: /repo/src/a.py", output)
