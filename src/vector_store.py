@@ -131,5 +131,15 @@ class FaissManager:
     def index_from_store(
         self, store: JSONKnowledgeStore, embedding_model: BaseEmbeddingModel
     ) -> None:
-        eligible = [symbol for symbol in store.iter_symbols() if symbol.status != "STALE"]
-        self.add_symbols(eligible, embedding_model)
+        existing_ids = set(self.docstore.keys())
+        to_add: List[SymbolChunk] = []
+        for symbol in store.iter_symbols():
+            if symbol.status == "STALE":
+                if symbol.symbol_id in existing_ids:
+                    self.deactivate_symbol(symbol.symbol_id)
+                continue
+            if symbol.symbol_id in existing_ids:
+                continue
+            to_add.append(symbol)
+        if to_add:
+            self.add_symbols(to_add, embedding_model)
