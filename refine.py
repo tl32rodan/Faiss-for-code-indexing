@@ -23,7 +23,7 @@ def run_refine(source_root: str, knowledge_root: str) -> int:
     if not source_root_path.exists():
         return 0
     loader = FileLoader(
-        valid_extensions=(".py", ".pl", ".pm", ".tcl", ".csh", ".txt", ".md")
+        valid_extensions=(".py", ".pl", ".pm", ".tcl", ".csh")
     )
     source_files = loader.scan_directory(str(source_root_path))
     if not source_files:

@@ -106,27 +106,32 @@ class FaissManager:
                 handle,
             )
 
-    def load_local(self, path: str) -> None:
+    def load_local(self, path: str) -> bool:
         root = Path(path)
+        if not root.exists():
+            return False
+        docstore_path = root / "docstore.pkl"
+        if not docstore_path.exists():
+            return False
+        index_path = None
         if self._faiss is not None and (root / "index.faiss").exists():
-            self.index = self._faiss.read_index(str(root / "index.faiss"))
+            index_path = root / "index.faiss"
         elif (root / "index.pkl").exists():
-            with (root / "index.pkl").open("rb") as handle:
+            index_path = root / "index.pkl"
+        if index_path is None:
+            return False
+        if self._faiss is not None and index_path.suffix == ".faiss":
+            self.index = self._faiss.read_index(str(index_path))
+        else:
+            with index_path.open("rb") as handle:
                 self.index = pickle.load(handle)
-        with (root / "docstore.pkl").open("rb") as handle:
+        with docstore_path.open("rb") as handle:
             payload = pickle.load(handle)
         self.docstore = payload["docstore"]
         self._id_map = payload["id_map"]
         self._positions_by_id = payload["positions_by_id"]
         self._inactive_positions = payload["inactive_positions"]
-
-    def index_exists(self, root: str) -> bool:
-        path = Path(root)
-        if not path.exists():
-            return False
-        if not (path / "docstore.pkl").exists():
-            return False
-        return (path / "index.faiss").exists() or (path / "index.pkl").exists()
+        return True
 
     def index_from_store(
         self, store: JSONKnowledgeStore, embedding_model: BaseEmbeddingModel

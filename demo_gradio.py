@@ -57,15 +57,14 @@ def index_documents_if_needed(
 ) -> None:
     print("Step 4: Checking index status...")
     store = JSONKnowledgeStore(str(know_dir), str(docs_dir))
-
-    if vector_db.index_exists(str(vector_dir)):
+    loaded = vector_db.load_local(str(vector_dir))
+    if loaded:
         if updated_count > 0:
             print(
                 "Warning: Knowledge was updated during refine, but an index already exists. "
                 "Consider rebuilding the vector index to stay in sync."
             )
         print(f"Loading existing index from {vector_dir}...")
-        vector_db.load_local(str(vector_dir))
         return
 
     print(f"No index found in {vector_dir}. Building from Knowledge Store...")

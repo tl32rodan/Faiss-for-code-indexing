@@ -13,6 +13,8 @@ def _is_binary_file(path: Path, sample_size: int = 1024) -> bool:
     except (FileNotFoundError, OSError):
         return True
     return b"\0" in sample
+
+
 @dataclass
 class FileLoader:
     valid_extensions: tuple[str, ...] = (".py", ".md", ".txt", ".js", ".ts")
@@ -40,11 +42,3 @@ class FileLoader:
                     continue
                 files.append(str(path))
         return files
-
-    def determine_tier(self, filepath: str) -> str:
-        path = filepath.lower()
-        if "/src/" in path or "/lib/" in path:
-            return "GOLD"
-        if "/tests/" in path or "/examples/" in path or "/docs/" in path:
-            return "SILVER"
-        return "JUNK"

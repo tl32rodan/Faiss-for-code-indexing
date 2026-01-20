@@ -93,9 +93,12 @@ class GenericTextExtractor(BaseExtractor):
 
 
 def get_extractor_for_path(source_root: str, filepath: str) -> BaseExtractor:
-    if Path(filepath).suffix.lower() == ".py":
+    suffix = Path(filepath).suffix.lower()
+    if suffix == ".py":
         return PythonAstExtractor(source_root)
-    return GenericTextExtractor()
+    if suffix in (".pl", ".pm", ".csh", ".tcl"):
+        return GenericTextExtractor()
+    raise ValueError(f"No extractor found for {suffix}")
 
 
 class _PythonSymbolVisitor(ast.NodeVisitor):
