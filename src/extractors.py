@@ -48,7 +48,7 @@ class PythonAstExtractor(BaseExtractor):
 
 
 class GenericTextExtractor(BaseExtractor):
-    def __init__(self, chunk_size: int = 1000, overlap: int = 100) -> None:
+    def __init__(self, chunk_size: int = 15000, overlap: int = 1000) -> None:
         self.chunk_size = max(chunk_size, 1)
         self.overlap = min(max(overlap, 0), self.chunk_size - 1)
 
@@ -96,9 +96,7 @@ def get_extractor_for_path(source_root: str, filepath: str) -> BaseExtractor:
     suffix = Path(filepath).suffix.lower()
     if suffix == ".py":
         return PythonAstExtractor(source_root)
-    if suffix in (".pl", ".pm", ".csh", ".tcl"):
-        return GenericTextExtractor()
-    raise ValueError(f"No extractor found for {suffix}")
+    return GenericTextExtractor()
 
 
 class _PythonSymbolVisitor(ast.NodeVisitor):
