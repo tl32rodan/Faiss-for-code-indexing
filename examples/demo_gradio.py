@@ -1,199 +1,184 @@
 from __future__ import annotations
 
-import os
 import sys
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import List, Optional, Dict, Any
 
 import gradio as gr
-import requests
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
+# Add repo root to sys.path
 repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-if TYPE_CHECKING:
+try:
     from src.vector_store import FaissManager
+    from src.search import CodeSearchEngine
+    from src.embeddings import BaseEmbeddingModel
+    from refine import run_refine
+except ImportError:
+    pass
 
+# --- Configuration ---
+LLM_CONFIG = {
+    "base_url": "http://f15dtpai1:11517/v1",
+    "model_name": "gpt-oss-120b",
+    "api_key": "EMPTY"
+}
 
-class LLMClient(Protocol):
-    def generate(self, prompt: str, system_prompt: str = "") -> str:
-        """Generate a response for the provided prompt."""
+EMBEDDING_CONFIG = {
+    "host": "f15dtpai1:11436",
+    "model": "nomic_embed_text:latest",
+    "batch_size": 32,
+    "max_workers": 8
+}
 
+# --- Remote Embedding Model ---
+class RemoteEmbeddingModel(BaseEmbeddingModel):
+    def __init__(self):
+        self.host = EMBEDDING_CONFIG["host"]
+        self.model_name = EMBEDDING_CONFIG["model"]
+        self.batch_size = EMBEDDING_CONFIG["batch_size"]
+        self.max_workers = EMBEDDING_CONFIG["max_workers"]
+        self.dimension = self._fetch_dimension()
 
-class SimpleLLM:
-    def __init__(self, model_name: str = "gpt-3.5-turbo") -> None:
-        self.model_name = model_name
+    def _fetch_dimension(self) -> int:
+        print("Connecting to embedding server to fetch dimension...")
+        url = f"http://{self.host}/api/embed"
+        data = {"model": self.model_name, "input": "ping"}
+        try:
+            response = requests.post(url, json=data, timeout=10)
+            response.raise_for_status()
+            embeddings = response.json().get("embeddings", [])
+            if not embeddings or not embeddings[0]:
+                raise ValueError("Empty embedding.")
+            return len(embeddings[0])
+        except Exception as e:
+            print(f"Error fetching dimension: {e}")
+            raise RuntimeError("Could not determine dimension.")
 
-    def generate(self, prompt: str, system_prompt: str = "") -> str:
-        return (
-            "**[模擬 LLM 回應]**\n"
-            f"收到了你的問題：'{prompt[-50:]}...'\n"
-            "根據檢索到的 Context，我認為..."
-        )
-
-
-class RemoteEmbeddingModel:
-    def __init__(
-        self,
-        endpoint_url: str,
-        dimension: int,
-        batch_size: int = 32,
-        max_workers: int = 8,
-    ) -> None:
-        self.endpoint_url = endpoint_url
-        self.dimension = dimension
-        self.batch_size = batch_size
-        self.max_workers = max_workers
-
-    def encode(self, texts: list[str]) -> list[list[float]]:
-        batches = [
-            texts[i : i + self.batch_size]
-            for i in range(0, len(texts), self.batch_size)
-        ]
-        if not batches:
-            return []
-        results: list[list[float]] = []
+    def encode(self, texts: List[str], **kwargs) -> List[List[float]]:
+        if not texts: return []
+        batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+        results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            for batch_vectors in executor.map(self._send_request, batches):
-                results.extend(batch_vectors)
+            for batch_embeddings in executor.map(self._embed_batch, batches):
+                results.extend(batch_embeddings)
         return results
 
-    def _send_request(self, batch_texts: list[str]) -> list[list[float]]:
-        response = requests.post(
-            self.endpoint_url, json={"inputs": batch_texts}, timeout=60
-        )
-        response.raise_for_status()
-        payload = response.json()
-        return payload.get("embeddings", [])
+    def _embed_batch(self, batch_texts: List[str]) -> List[List[float]]:
+        url = f"http://{self.host}/api/embed"
+        data = {"model": self.model_name, "input": batch_texts}
+        try:
+            with requests.Session() as session:
+                response = session.post(url, json=data, timeout=60)
+                response.raise_for_status()
+                embeddings = response.json().get("embeddings", [])
+                if len(embeddings) != len(batch_texts):
+                    raise ValueError(f"Batch mismatch.")
+                return embeddings
+        except Exception as e:
+            print(f"Batch error: {e}")
+            raise
 
     def get_sentence_embedding_dimension(self) -> int:
         return self.dimension
 
+# --- Chatbot Logic ---
+class MyBot:
+    def __init__(self, vector_db: FaissManager, embedding_model: RemoteEmbeddingModel):
+        self.search_engine = CodeSearchEngine(vector_db=vector_db, embedding_model=embedding_model)
+        self.llm_client = ChatOpenAI(
+            openai_api_key=LLM_CONFIG["api_key"],
+            openai_api_base=LLM_CONFIG["base_url"],
+            model_name=LLM_CONFIG["model_name"],
+            temperature=0.3
+        )
+        self.messages: List[BaseMessage] = []
+        self.messages.append(HumanMessage(content="You are a helpful coding assistant.")) 
 
-def initialize_llm_and_embedding_model() -> tuple[LLMClient, RemoteEmbeddingModel]:
-    print("Step 1: Initializing models...")
-    endpoint_url = os.environ.get("EMBEDDING_ENDPOINT", "http://localhost:8001/embed")
-    dimension = int(os.environ.get("EMBEDDING_DIMENSION", "768"))
-    batch_size = int(os.environ.get("EMBEDDING_BATCH_SIZE", "32"))
-    max_workers = int(os.environ.get("EMBEDDING_MAX_WORKERS", "8"))
-    embedding_model = RemoteEmbeddingModel(
-        endpoint_url=endpoint_url,
-        dimension=dimension,
-        batch_size=batch_size,
-        max_workers=max_workers,
-    )
-    llm = SimpleLLM()
-    return llm, embedding_model
-
-
-def setup_vector_database(embedding_model: RemoteEmbeddingModel) -> "FaissManager":
-    print("Step 3: Setting up Vector DB Manager...")
-    from src.vector_store import FaissManager
-
-    dimension = embedding_model.get_sentence_embedding_dimension()
-    return FaissManager(dimension=dimension)
-
-
-def index_documents_if_needed(
-    docs_dir: Path,
-    know_dir: Path,
-    vector_dir: Path,
-    vector_db: "FaissManager",
-    embedding_model: RemoteEmbeddingModel,
-    updated_count: int,
-) -> None:
-    print("Step 4: Checking index status...")
-    from src.knowledge_store import JSONKnowledgeStore
-
-    store = JSONKnowledgeStore(str(know_dir), str(docs_dir))
-    loaded = vector_db.load_local(str(vector_dir))
-    if loaded:
-        if updated_count > 0:
-            print("Warning: Knowledge was updated; syncing the vector index.")
-        print(f"Loading existing index from {vector_dir}...")
-    else:
-        print(f"No index found in {vector_dir}. Building from Knowledge Store...")
-
-    print(f"Syncing vector DB from knowledge store (updated: {updated_count})...")
-    vector_db.index_from_store(store, embedding_model)
-
-    if updated_count > 0 or not loaded:
-        print(f"Saving updated index to {vector_dir}...")
-        vector_db.save_local(str(vector_dir))
-
-
-def initialize_chatbot(
-    system_prompt: str,
-    llm: LLMClient,
-    vector_db: "FaissManager",
-    embedding_model: RemoteEmbeddingModel,
-) -> gr.ChatInterface:
-    print("Step 5: Initializing Chatbot Engine...")
-    from src.search import CodeSearchEngine
-
-    search_engine = CodeSearchEngine(vector_db=vector_db, embedding_model=embedding_model)
-
-    def chat_function(message: str, history: list[dict[str, str]]) -> str:
-        print(f"Querying: {message}")
-        context_str = search_engine.query(message, top_k=3)
-
-        if not context_str.strip():
-            context_str = "No relevant code found in knowledge base."
-
+    def chat(self, user_text: str) -> str:
+        retrieved_content_str = self.search_engine.query(user_text, top_k=5)
         full_prompt = (
-            "Context from codebase:\n"
-            f"{context_str}\n\n"
-            f"User Question: {message}\n"
-            "Answer:"
+            f"**Prompt**:{user_text}\n"
+            f"**Retrieved Documents**:\n{retrieved_content_str}\n"
+            f"**Prompt**:{user_text}"
+        )
+        self.messages.append(HumanMessage(content=full_prompt))
+        print(f"Invoking LLM with {len(self.messages)} messages...")
+        response = self.llm_client.invoke(self.messages)
+        self.messages.append(response)
+        return response.content
+
+# --- Main ---
+def setup_knowledge_base():
+    docs_dir = Path("source_code_link").resolve()
+    know_dir = Path("knowledge_base").resolve()
+    if not docs_dir.exists():
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        if not any(docs_dir.iterdir()):
+            (docs_dir / "demo_placeholder.py").write_text("def hello(): pass", encoding="utf-8")
+    run_refine(str(docs_dir), str(know_dir))
+    embedding_model = RemoteEmbeddingModel()
+    vector_db = FaissManager(dimension=embedding_model.get_sentence_embedding_dimension())
+    from src.knowledge_store import JSONKnowledgeStore
+    store = JSONKnowledgeStore(str(know_dir), str(docs_dir))
+    vector_db.index_from_store(store, embedding_model)
+    return vector_db, embedding_model
+
+def main():
+    global_vector_db, global_embedding_model = setup_knowledge_base()
+
+    with gr.Blocks(title="Codebase RAG Demo") as demo:
+        gr.Markdown("# Codebase RAG Agent")
+
+        bot_state = gr.State()
+        history_state = gr.State([])
+
+        chatbot = gr.Chatbot(height=600)
+        msg = gr.Textbox(placeholder="Ask a question...", label="User Input")
+        clear = gr.Button("Clear Context")
+
+        def init_user_session():
+            return MyBot(vector_db=global_vector_db, embedding_model=global_embedding_model), []
+
+        demo.load(init_user_session, None, [bot_state, history_state])
+
+        def respond(user_message, bot_instance, current_history):
+            if bot_instance is None:
+                bot_instance, _ = init_user_session()
+                current_history = []
+
+            try:
+                bot_response = bot_instance.chat(user_message)
+            except Exception as e:
+                bot_response = f"Error: {str(e)}"
+
+            current_history.append((user_message, str(bot_response)))
+
+            return current_history, current_history, "", bot_instance
+
+        def clear_context():
+            new_bot, new_history = init_user_session()
+            return new_history, new_history, new_bot
+
+        msg.submit(
+            respond, 
+            [msg, bot_state, history_state], 
+            [history_state, chatbot, msg, bot_state]
+        )
+        clear.click(
+            clear_context, 
+            None, 
+            [history_state, chatbot, bot_state]
         )
 
-        return llm.generate(full_prompt, system_prompt=system_prompt)
-
-    return gr.ChatInterface(
-        fn=chat_function,
-        title="Codebase RAG Demo",
-        description="Ask questions about the indexed codebase.",
-        examples=["How do I add symbols?", "Explain the refine process."],
-    )
-
-
-def main() -> None:
-    from refine import run_refine
-
-    docs_dir = Path(os.environ.get("DOCS_DIR", "source_code_link")).expanduser().resolve()
-    know_dir = Path(os.environ.get("KNOW_DIR", "knowledge_base")).expanduser().resolve()
-    vector_dir = Path(os.environ.get("VECTOR_DIR", "vector_db_storage")).expanduser().resolve()
-
-    if not docs_dir.exists():
-        docs_dir.mkdir(exist_ok=True, parents=True)
-    know_dir.mkdir(exist_ok=True, parents=True)
-    vector_dir.mkdir(exist_ok=True, parents=True)
-
-    llm, embedding_model = initialize_llm_and_embedding_model()
-
-    print(f"Step 2: Refining knowledge from {docs_dir} into {know_dir}...")
-    updated_count = run_refine(str(docs_dir), str(know_dir))
-    print(f"Refinement complete. {updated_count} symbols updated/created.")
-
-    vector_db = setup_vector_database(embedding_model)
-
-    index_documents_if_needed(
-        docs_dir,
-        know_dir,
-        vector_dir,
-        vector_db,
-        embedding_model,
-        updated_count,
-    )
-
-    system_prompt = "You are a helpful coding assistant."
-    demo = initialize_chatbot(system_prompt, llm, vector_db, embedding_model)
-
-    print("Step 6 & 7: Launching Gradio...")
+    print("Launching Gradio Server...")
     demo.launch(share=False)
-
 
 if __name__ == "__main__":
     main()
