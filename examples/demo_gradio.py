@@ -1,27 +1,19 @@
 from __future__ import annotations
 
-import sys
-import requests
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any, List
 
 import gradio as gr
+import requests
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
-# Add repo root to sys.path
-repo_root = Path(__file__).resolve().parents[1]
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
-
-try:
-    from src.vector_store import FaissManager
-    from src.search import CodeSearchEngine
-    from src.embeddings import BaseEmbeddingModel
-    from refine import run_refine
-except ImportError:
-    pass
+from src.agent.router import KeywordRouter
+from src.embeddings import BaseEmbeddingModel
+from src.ingest import FileLoader, Ingestor, SidecarManager
+from src.stores.faiss_store import FaissStore, IdMapStore, IndexRegistry
 
 # --- Configuration ---
 LLM_CONFIG = {
@@ -59,11 +51,14 @@ class RemoteEmbeddingModel(BaseEmbeddingModel):
             return len(embeddings[0])
         except Exception as e:
             print(f"Error fetching dimension: {e}")
-            raise RuntimeError("Could not determine dimension.")
+            raise RuntimeError("Could not determine dimension.") from e
 
     def encode(self, texts: List[str], **kwargs) -> List[List[float]]:
-        if not texts: return []
-        batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+        if not texts:
+            return []
+        batches = [
+            texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)
+        ]
         results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for batch_embeddings in executor.map(self._embed_batch, batches):
@@ -79,7 +74,7 @@ class RemoteEmbeddingModel(BaseEmbeddingModel):
                 response.raise_for_status()
                 embeddings = response.json().get("embeddings", [])
                 if len(embeddings) != len(batch_texts):
-                    raise ValueError(f"Batch mismatch.")
+                    raise ValueError("Batch mismatch.")
                 return embeddings
         except Exception as e:
             print(f"Batch error: {e}")
@@ -89,9 +84,33 @@ class RemoteEmbeddingModel(BaseEmbeddingModel):
         return self.dimension
 
 # --- Chatbot Logic ---
-class MyBot:
-    def __init__(self, vector_db: FaissManager, embedding_model: RemoteEmbeddingModel):
-        self.search_engine = CodeSearchEngine(vector_db=vector_db, embedding_model=embedding_model)
+def _format_units(units: List[Any]) -> str:
+    sections = []
+    for unit in units:
+        sections.append(
+            "\n".join(
+                [
+                    f"UID: {unit.uid}",
+                    f"Source Type: {unit.source_type}",
+                    f"Metadata: {unit.metadata}",
+                    "Content:",
+                    unit.content,
+                ]
+            )
+        )
+    return "\n\n---\n\n".join(sections)
+
+
+class ReActAgent:
+    def __init__(
+        self,
+        registry: IndexRegistry,
+        embedding_model: RemoteEmbeddingModel,
+        router: KeywordRouter,
+    ):
+        self.registry = registry
+        self.embedding_model = embedding_model
+        self.router = router
         self.llm_client = ChatOpenAI(
             openai_api_key=LLM_CONFIG["api_key"],
             openai_api_base=LLM_CONFIG["base_url"],
@@ -99,16 +118,31 @@ class MyBot:
             temperature=0.3
         )
         self.messages: List[BaseMessage] = []
-        self.messages.append(HumanMessage(content="You are a helpful coding assistant.")) 
+        self.messages.append(HumanMessage(content="You are a helpful coding assistant."))
 
     def chat(self, user_text: str) -> str:
-        retrieved_content_str = self.search_engine.query(user_text, top_k=5)
-        full_prompt = (
-            f"**Prompt**:{user_text}\n"
-            f"**Retrieved Documents**:\n{retrieved_content_str}\n"
-            f"**Prompt**:{user_text}"
+        indices = self.router.route(user_text)
+        query_vector = self.embedding_model.encode([user_text])[0]
+        observations = []
+        for index_name in indices:
+            store = self.registry.get_index(index_name)
+            results = store.search(query_vector, top_k=5)
+            observations.extend(results)
+            for unit in results:
+                for related_id in unit.related_ids:
+                    related = getattr(store, "get_by_uid", lambda _: None)(related_id)
+                    if related:
+                        observations.append(related)
+        retrieved_content_str = _format_units(observations)
+        action_input = json.dumps({"indices": indices, "query": user_text})
+        react_prompt = (
+            f"Question: {user_text}\n"
+            "Thought: I should search the relevant indices for context.\n"
+            f"Action: search\nAction Input: {action_input}\n"
+            f"Observation:\n{retrieved_content_str}\n"
+            "Final: Provide the best possible answer."
         )
-        self.messages.append(HumanMessage(content=full_prompt))
+        self.messages.append(HumanMessage(content=react_prompt))
         print(f"Invoking LLM with {len(self.messages)} messages...")
         response = self.llm_client.invoke(self.messages)
         self.messages.append(response)
@@ -122,16 +156,27 @@ def setup_knowledge_base():
         docs_dir.mkdir(parents=True, exist_ok=True)
         if not any(docs_dir.iterdir()):
             (docs_dir / "demo_placeholder.py").write_text("def hello(): pass", encoding="utf-8")
-    run_refine(str(docs_dir), str(know_dir))
     embedding_model = RemoteEmbeddingModel()
-    vector_db = FaissManager(dimension=embedding_model.get_sentence_embedding_dimension())
-    from src.knowledge_store import JSONKnowledgeStore
-    store = JSONKnowledgeStore(str(know_dir), str(docs_dir))
-    vector_db.index_from_store(store, embedding_model)
-    return vector_db, embedding_model
+    registry = IndexRegistry()
+    index_names = ["source_code", "tests", "issues", "knowledge"]
+    for name in index_names:
+        mapping_path = know_dir / f"{name}_id_map.json"
+        store = FaissStore(
+            dimension=embedding_model.get_sentence_embedding_dimension(),
+            embedding_model=embedding_model,
+            id_map=IdMapStore(mapping_path),
+        )
+        registry.register_index(name, store)
+    loader = FileLoader()
+    sidecar_manager = SidecarManager(str(know_dir), str(docs_dir))
+    ingestor = Ingestor(str(docs_dir), str(know_dir), loader, sidecar_manager)
+    units = ingestor.ingest()
+    registry.get_index("source_code").add(units)
+    return registry, embedding_model
 
 def main():
-    global_vector_db, global_embedding_model = setup_knowledge_base()
+    global_registry, global_embedding_model = setup_knowledge_base()
+    router = KeywordRouter()
 
     with gr.Blocks(title="Codebase RAG Demo") as demo:
         gr.Markdown("# Codebase RAG Agent")
@@ -144,7 +189,14 @@ def main():
         clear = gr.Button("Clear Context")
 
         def init_user_session():
-            return MyBot(vector_db=global_vector_db, embedding_model=global_embedding_model), []
+            return (
+                ReActAgent(
+                    registry=global_registry,
+                    embedding_model=global_embedding_model,
+                    router=router,
+                ),
+                [],
+            )
 
         demo.load(init_user_session, None, [bot_state, history_state])
 

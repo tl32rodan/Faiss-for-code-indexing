@@ -1,17 +1,21 @@
-# Codebase Knowledge System (FAISS)
+# Agentic RAG Knowledge System (FAISS)
 
-This repository provides a modular Codebase Knowledge System that extracts
-stable symbols from source code, stores intent metadata as versionable JSON
-sidecars, and indexes only fresh knowledge via FAISS.
+This repository provides a modular Agentic RAG Knowledge System that extracts
+knowledge units from source code, tests, issues, and docs, stores intent metadata
+in editable sidecar YAML files, and indexes heterogeneous knowledge via FAISS.
 
 ## Key Concepts
 
-- **SymbolChunk** encapsulates a code symbol plus intent metadata for embedding and display.
-- **Stable identities** are derived from AST symbols (e.g. `module:function`), so metadata
-  persists across refactors.
-- **JSON knowledge base** mirrors `src/` so metadata can be versioned alongside code.
-- **Refinery** detects drift by comparing stored metadata hashes with current code hashes.
-- **FAISS-backed vector store** indexes only symbols that are not stale.
+- **KnowledgeUnit** encapsulates any retrievable artifact (code, tests, issues, docs) with
+  stable IDs, metadata, and explicit relationships.
+- **Sidecar metadata** lives in `.meta.yaml` files that mirror the source tree, enabling
+  "edit while reading" workflows and compatibility with non-AST languages.
+- **Multi-index architecture** separates source code, tests, issues, and knowledge into
+  independent vector indices for targeted retrieval.
+- **CRUD-enabled FAISS store** uses integer ID mappings to support updates and deletions
+  without full re-indexing.
+- **Router + ReAct agent** selects indices, retrieves context, and produces final answers
+  in a reasoning-and-acting loop.
 
 ## Quick Start (Demo)
 
@@ -19,6 +23,12 @@ The demo creates a few in-memory symbols, indexes them, and runs a query.
 
 ```bash
 python examples/demo.py
+```
+
+Launch the multi-index ReAct demo (requires the configured LLM and embedding servers):
+
+```bash
+python examples/demo_gradio.py
 ```
 
 ## Refinery Demos
@@ -37,20 +47,22 @@ python examples/create_and_refine_demo.py
 
 ## Project Structure
 
-- `src/models.py`: `SymbolChunk` definition.
-- `src/ingest.py`: file scanning utilities.
-- `src/extractors.py`: base extractor + Python AST extractor.
-- `src/knowledge_store.py`: JSON knowledge base I/O.
-- `src/refinery.py`: drift detection + reconciliation.
-- `src/vector_store.py`: FAISS manager + docstore.
-- `src/search.py`: query facade and prompt formatting.
+- `src/core/knowledge_unit.py`: `KnowledgeUnit` definition.
+- `src/agent/router.py`: router interface and keyword router.
+- `src/ingest.py`: file scanning, sidecar manager, and ingestion pipeline.
+- `src/extractors.py`: AST extractor + regex extractor + generic chunking.
+- `src/stores/faiss_store.py`: CRUD-capable FAISS store + ID mapping + registry.
+- `src/knowledge_store.py`: JSON knowledge base I/O (legacy).
+- `src/refinery.py`: drift detection + reconciliation (legacy).
+- `src/vector_store.py`: legacy FAISS manager + docstore.
 - `refine.py`: update knowledge base from `src/`.
 - `examples/demo.py`: minimal end-to-end usage example.
+- `examples/demo_gradio.py`: router-driven ReAct agent demo.
 
 ## Development
 
 ```bash
 pip install -r requirements.txt
 ruff check .
-python -m unittest discover -s tests
+python -m pytest
 ```

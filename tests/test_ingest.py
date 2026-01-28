@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from src.ingest import FileLoader
+import yaml
+
+from src.ingest import FileLoader, Ingestor, SidecarManager
 
 
 class TestIngest(unittest.TestCase):
@@ -58,6 +60,30 @@ class TestIngest(unittest.TestCase):
                 loader = FileLoader(valid_extensions=(".py",))
                 results = loader.scan_directory(str(root))
         self.assertEqual(results, [])
+
+    def test_ingestor_creates_sidecar_and_units(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir:
+            with tempfile.TemporaryDirectory() as knowledge_dir:
+                source_root = Path(source_dir)
+                knowledge_root = Path(knowledge_dir)
+                perl_file = source_root / "script.pl"
+                perl_file.write_text("sub alpha {\n  return 1;\n}\n", encoding="utf-8")
+                loader = FileLoader(valid_extensions=(".pl",))
+                sidecar_manager = SidecarManager(str(knowledge_root), str(source_root))
+                ingestor = Ingestor(
+                    str(source_root),
+                    str(knowledge_root),
+                    loader,
+                    sidecar_manager,
+                )
+
+                units = ingestor.ingest()
+                sidecar_path = sidecar_manager.sidecar_path_for_source(str(perl_file))
+
+                self.assertTrue(sidecar_path.exists())
+                payload = yaml.safe_load(sidecar_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["file_uid"], "script.pl")
+                self.assertEqual(units[0].metadata["symbol_name"], "alpha")
 
 if __name__ == "__main__":
     unittest.main()
