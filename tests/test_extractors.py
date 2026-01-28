@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.extractors import PythonAstExtractor
+from src.extractors import PythonAstExtractor, RegexExtractor
 from src.ingest import FileLoader
 
 
@@ -31,6 +31,15 @@ class TestExtractors(unittest.TestCase):
 
             self.assertEqual(len(symbols), 1)
             self.assertTrue(symbols[0].symbol_id.endswith("linked:alpha"))
+
+    def test_regex_extractor_finds_perl_subs(self) -> None:
+        content = "sub alpha {\\n  return 1;\\n}\\nsub beta {\\n  return 2;\\n}\\n"
+        extractor = RegexExtractor(r"^sub\s+(\w+)")
+        symbols = extractor.extract_symbols("script.pl", content)
+        names = [symbol.symbol_name for symbol in symbols]
+
+        self.assertEqual(names, ["alpha", "beta"])
+        self.assertEqual(symbols[0].start_line, 1)
 
 
 if __name__ == "__main__":

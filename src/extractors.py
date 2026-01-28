@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List
@@ -92,10 +93,55 @@ class GenericTextExtractor(BaseExtractor):
         return chunks
 
 
+class RegexExtractor(BaseExtractor):
+    def __init__(self, pattern: str, window_lines: int = 200) -> None:
+        self.pattern = re.compile(pattern, re.MULTILINE)
+        self.window_lines = window_lines
+
+    def extract_symbols(self, filepath: str, content: str) -> List[SymbolChunk]:
+        if "\n" not in content and "\\n" in content:
+            content = content.replace("\\n", "\n")
+        lines = content.splitlines()
+        chunks: List[SymbolChunk] = []
+        matches: List[tuple[int, str]] = []
+        for line_number, line in enumerate(lines, start=1):
+            match = self.pattern.search(line)
+            if match:
+                matches.append((line_number, match.group(1)))
+        if not matches:
+            return GenericTextExtractor().extract_symbols(filepath, content)
+        for index, (start_line, name) in enumerate(matches):
+            end_line = self._end_line_for_match(matches, index, start_line, len(lines))
+            segment = "\n".join(lines[start_line - 1 : end_line])
+            chunks.append(
+                SymbolChunk(
+                    symbol_id=f"{Path(filepath).as_posix()}::{name}",
+                    filepath=filepath,
+                    symbol_name=name,
+                    symbol_kind="function",
+                    start_line=start_line,
+                    end_line=end_line,
+                    content=segment,
+                    code_hash=compute_code_hash(segment),
+                )
+            )
+        return chunks
+
+    def _end_line_for_match(
+        self, matches: List[tuple[int, str]], index: int, start_line: int, total_lines: int
+    ) -> int:
+        if index + 1 < len(matches):
+            next_line = matches[index + 1][0]
+            return max(next_line - 1, start_line)
+        return min(total_lines, start_line + self.window_lines - 1)
+
+
 def get_extractor_for_path(source_root: str, filepath: str) -> BaseExtractor:
     suffix = Path(filepath).suffix.lower()
     if suffix == ".py":
         return PythonAstExtractor(source_root)
+    if suffix == ".pl":
+        return RegexExtractor(r"^sub\s+(\w+)")
     return GenericTextExtractor()
 
 
